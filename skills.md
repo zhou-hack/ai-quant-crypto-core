@@ -13,9 +13,9 @@
 系统由几个严格分开的部分组成：
 
 1. **Market Data**：获取市场 K 线数据。
-2. **LLM**：负责研究、分析、事件理解和结构化信息提取。
+2. **LLM**：负责研究、分析、事件理解、结构化信息提取和提名方向。
 3. **Market State**：把市场数据和 LLM 分析组合成统一状态。
-4. **JEV**：只根据 Market State 输出方向判断。
+4. **JEV**：对 LLM 提名的方向给出 0-1 概率分，作为辅助评分模型。
 5. **Prediction Storage**：保存每次分析和判断，供之后查询。
 
 核心流程：
@@ -24,14 +24,14 @@
 Market Data
     -> LLM Analysis
     -> Market State
-    -> JEV Decision
+    -> JEV Score + Threshold
     -> Saved Prediction
 ```
 
 ## 重要边界
 
-- LLM 负责研究分析，不直接下交易方向。
-- JEV 只负责方向判断：`LONG`、`SHORT` 或 `HOLD`。
+- LLM 负责研究分析，并提名方向（`LONG`/`SHORT`/`HOLD`）。
+- JEV 是辅助评分模型，对 LLM 提名的方向给一个 0-1 概率分。`direction` 最终值由 `LLM 提名 + JEV 评分` 共同决定：score ≥ 阈值采纳提名，否则落 `HOLD`。
 - `LONG`、`SHORT`、`HOLD` 只是分析结果，不代表已经下单。
 - 系统没有下单、撤单、账户、仓位、杠杆、止损或止盈功能。
 - 系统没有真实交易能力，也没有 Paper Trading 能力。
@@ -65,14 +65,15 @@ Market Data
 Hermes 浏览器获取最近 7 天新闻
     -> Core 获取最近 7 天 1h/4h 价格数据
     -> LLM 总结新闻并挑选最多 5 条重要事件
-    -> LLM 统一分析价格、技术指标和重要事件
+    -> LLM 统一分析价格、技术指标和重要事件并提名方向
     -> Market State
-    -> JEV Decision
+    -> JEV Score
+    -> score >= threshold 时采纳 LLM 提名，否则 direction = HOLD
     -> LLM 对 JEV 结果做最终判断和解释
     -> Hermes 输出研究报告
 ```
 
-新闻必须先经过 LLM 筛选，原始新闻不能直接作为 JEV 输入。JEV 返回后，必须把 JEV 结果交给 LLM 做最终判断。最终判断不得改写 JEV 原始响应，必须同时保留原始方向和 confidence。
+新闻必须先经过 LLM 筛选，原始新闻不能直接作为 JEV 输入。JEV 返回后，必须把 JEV 结果交给 LLM 做最终判断。最终判断不得改写 JEV 原始 `score` 和采纳后的 `direction`，必须同时保留这两个值。
 
 ## 可用 MCP 工具
 
@@ -97,7 +98,7 @@ Hermes 浏览器获取最近 7 天新闻
 对一个币种执行完整分析流程：
 
 ```text
-News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> JEV -> LLM Final Judgment -> SQLite
+News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis + Direction Pick -> State -> JEV Score -> Threshold Direction -> LLM Final Judgment -> SQLite
 ```
 
 输入：
@@ -125,7 +126,7 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
     "symbol": "BTCUSDT",
     "market": {},
     "technical": {},
-    "llm_analysis": {},
+    "llm_analysis": {"direction_pick": "LONG", "direction_rationale": "..."},
     "market_context": {}
   },
   "llm_analysis": {
@@ -134,18 +135,25 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
     "risk": 0.21,
     "event": 0.74,
     "sentiment": 0.68,
-    "summary": "..."
+    "summary": "...",
+    "direction_pick": "LONG",
+    "direction_rationale": "..."
   },
   "jev_decision": {
     "symbol": "BTCUSDT",
     "direction": "LONG",
     "confidence": 0.73,
+    "score": 0.73,
     "model": "jev-latest",
     "timestamp": "2026-10-03T12:00:00Z"
   },
-  "prediction_id": 1
+  "prediction_id": 1,
+  "decision_review": "...",
+  "final_judgment": "... direction=LONG; score=0.73"
 }
 ```
+
+`jev_decision.direction` 是阈值采纳后的方向，`jev_decision.score` 是 JEV 原始概率分。`final_judgment` 必须原样保留 JEV 的 `score` 和 `direction`，不得改写。
 
 使用时应同时阅读 `news_brief`、`state`、`llm_analysis`、`jev_decision`、`decision_review` 和 `final_judgment`。不要只读取 `direction`。
 
@@ -176,7 +184,7 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
     "symbol": "BTCUSDT",
     "market": {},
     "technical": {},
-    "llm_analysis": {},
+    "llm_analysis": {"direction_pick": "LONG", "direction_rationale": "..."},
     "market_context": {}
   }
 }
@@ -187,14 +195,15 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
 ```json
 {
   "symbol": "BTCUSDT",
-  "direction": "HOLD",
-  "confidence": 0.61,
+  "direction": "LONG",
+  "confidence": 0.73,
+  "score": 0.73,
   "model": "jev-latest",
   "timestamp": "2026-10-03T12:00:00Z"
 }
 ```
 
-这个工具不会替代完整的市场分析。没有可靠 State 时，优先使用 `analyze_market`。
+这个工具会对 `state.llm_analysis.direction_pick` 评分。`direction` 是通过阈值后的采纳方向，`score` 是 JEV 原始分。没有包含提名方向的可靠 State 时，优先使用 `analyze_market`。
 
 ### `get_prediction`
 
@@ -218,6 +227,8 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
 - JEV 模型
 - JEV 方向
 - JEV confidence
+- JEV 原始 score
+- 最终判断说明
 - 预测周期
 
 `state_snapshot` 是研究判断原因的重要证据。分析历史预测时，不要只比较方向。
@@ -244,7 +255,7 @@ News -> LLM News Brief -> Market Data + News Brief -> LLM Analysis -> State -> J
 1. 调用 `analyze_market`。
 2. 检查 `state.market` 和 `state.technical`。
 3. 检查 `llm_analysis` 的五个分数和 `summary`。
-4. 检查 `jev_decision.direction` 与 `confidence`。
+4. 检查 `llm_analysis.direction_pick`、`jev_decision.direction`、`score` 与 `confidence`。
 5. 用自然语言说明这是研究结论，不是订单指令。
 
 ### 多币种比较
@@ -273,7 +284,9 @@ LLM 分析中的以下字段范围是 `0.0` 到 `1.0`：
 
 这些分数不是收益率，也不是概率承诺。
 
-JEV 的 `confidence` 范围是 `0.0` 到 `1.0`，表示 JEV 对方向判断的信心程度。它不是盈利概率，也不是风险限额。
+`JEV.score` 范围 `0.0` 到 `1.0`：JEV 对 LLM 提名的方向合理性的概率分。它不是收益率、不是盈利概率、也不是 JEV 对市场的方向判断。当 `score < JEV_SCORE_THRESHOLD` 时，`direction` 自动落 `HOLD`。
+
+`JEV.confidence` 范围是 `0.0` 到 `1.0`：采纳提名时等于 `score`；落 `HOLD` 时等于 `1.0 - score`。它不是盈利概率，也不是风险限额。
 
 ## 错误处理
 
@@ -292,8 +305,8 @@ JEV 的 `confidence` 范围是 `0.0` 到 `1.0`，表示 JEV 对方向判断的�
 - 声称已经执行买入、卖出或任何交易。
 - 根据 `LONG`、`SHORT`、`HOLD` 自动创建订单。
 - 虚构 API 返回、市场数据、新闻、预测或历史记录。
-- 把 LLM 分数当成 JEV 决策。
-- 把 JEV confidence 当成收益或盈利保证。
+- 不要把 LLM 的 `direction_pick` 当成最终方向。最终方向由 LLM 提名 + JEV 评分共同决定。
+- 不要把 JEV `score` 当成收益或盈利保证。
 - 修改系统配置来绕过币种数量、模型隔离或安全限制。
 - 把 API Key 写入回复、日志、Skill 或 MCP 参数说明。
 
@@ -304,7 +317,7 @@ JEV 的 `confidence` 范围是 `0.0` 到 `1.0`，表示 JEV 对方向判断的�
 1. 币种和数据时间。
 2. 市场状态摘要。
 3. LLM 分析摘要。
-4. JEV 方向和 confidence。
+4. JEV 采纳后的方向、原始 `score` 和 `confidence`。
 5. 明确说明这是分析结果，不是交易执行。
 
 当数据不足、请求失败或结果不完整时，直接说明原因，不要用猜测填补空缺。

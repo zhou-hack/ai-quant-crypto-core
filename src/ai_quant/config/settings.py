@@ -20,6 +20,9 @@ class JEVSettings(BaseModel):
     base_url: str = "https://example.com"
     api_key: str = ""
     model: str = "jev-latest"
+    score_threshold: float = Field(default=0.65, ge=0, le=1)
+    question_name: str = "direction_appropriateness"
+    timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 class MarketSettings(BaseModel):
@@ -77,6 +80,7 @@ def get_settings(*, env_file: str | Path = ".env", yaml_file: str | Path = "conf
     dotenv = _load_dotenv(Path(env_file))
     env = {**dotenv, **{k: v for k, v in os.environ.items() if k in {
         "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "JEV_BASE_URL", "JEV_API_KEY", "JEV_MODEL",
+        "JEV_SCORE_THRESHOLD", "JEV_QUESTION_NAME",
         "MARKET_DATA_BASE_URL", "MARKET_DATA_API_KEY", "APP_ENV", "LOG_LEVEL", "DATABASE_URL", "SYMBOLS",
     }}}
     raw = _yaml(Path(yaml_file))
@@ -86,7 +90,13 @@ def get_settings(*, env_file: str | Path = ".env", yaml_file: str | Path = "conf
     symbols = env.get("SYMBOLS")
     return Settings(
         llm=LLMSettings(base_url=env.get("LLM_BASE_URL", "https://example.com/v1"), api_key=env.get("LLM_API_KEY", ""), model=env.get("LLM_MODEL", "")),
-        jev=JEVSettings(base_url=env.get("JEV_BASE_URL", "https://example.com"), api_key=env.get("JEV_API_KEY", ""), model=env.get("JEV_MODEL", "jev-latest")),
+        jev=JEVSettings(
+            base_url=env.get("JEV_BASE_URL", "https://example.com"),
+            api_key=env.get("JEV_API_KEY", ""),
+            model=env.get("JEV_MODEL", "jev-latest"),
+            score_threshold=env.get("JEV_SCORE_THRESHOLD", 0.65),
+            question_name=env.get("JEV_QUESTION_NAME", "direction_appropriateness"),
+        ),
         market=MarketSettings(**market),
         app_env=env.get("APP_ENV", "development"), log_level=env.get("LOG_LEVEL", "INFO"),
         database_url=env.get("DATABASE_URL", "sqlite:///./data/quant.db"),

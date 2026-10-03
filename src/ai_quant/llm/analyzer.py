@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from .client import LLMClient
@@ -13,6 +15,8 @@ class LLMAnalysis(BaseModel):
     event: float = Field(ge=0, le=1)
     sentiment: float = Field(ge=0, le=1)
     summary: str = ""
+    direction_pick: Literal["LONG", "SHORT", "HOLD"] = "HOLD"
+    direction_rationale: str = ""
 
 
 class NewsBrief(BaseModel):
@@ -41,8 +45,19 @@ class LLMAnalyzer:
         return brief
 
     async def analyze(self, *, market_data: dict, context: dict | None = None) -> LLMAnalysis:
-        messages = [{"role": "system", "content": "Analyze the market. Return JSON with trend, fundamental, risk, event, sentiment (0 to 1) and summary. Do not return a trading direction."},
-                    {"role": "user", "content": json.dumps({"market": market_data, "context": context or {}}, default=str)}]
+        messages = [
+            {"role": "system", "content": (
+                "Analyze the crypto market and return STRICT JSON only. "
+                "Required numeric keys (each MUST be a number between 0.0 and 1.0): "
+                "trend, fundamental, risk, event, sentiment (use 0.0 if unknown). "
+                "Required string keys: summary, direction_pick, direction_rationale. "
+                "direction_pick MUST be exactly one of: LONG, SHORT, HOLD. "
+                "direction_rationale is a one-sentence reason for the pick. "
+                "Do NOT nest objects or add sub-fields under any numeric score. "
+                "Output JSON, no prose, no markdown fences."
+            )},
+            {"role": "user", "content": json.dumps({"market": market_data, "context": context or {}}, default=str)},
+        ]
         content = await self.client.chat(messages)
         try:
             payload = json.loads(content)
@@ -50,10 +65,15 @@ class LLMAnalyzer:
             raise ValueError("LLM returned non-JSON analysis") from exc
         return LLMAnalysis.model_validate(payload)
 
-    async def review_decision(self, *, state: dict, decision: dict, news: list[dict] | None = None) -> str:
+    async def review_decision(self, *, state: dict, decision: dict, news: list[dict] | dict | None = None) -> str:
         """Explain and sanity-check JEV output without changing the original decision."""
         messages = [
-            {"role": "system", "content": "Review a JEV directional decision against the supplied market state and news. Return a concise evidence-based explanation. Do not create an order and do not replace the original direction."},
+            {"role": "system", "content": (
+                "Review a JEV decision against the supplied market state and news. Return a concise, "
+                "evidence-based explanation. Preserve the supplied JEV score and direction exactly; "
+                "do not rewrite, recalculate, or replace either value. Include both values verbatim in "
+                "your response. Do not create an order."
+            )},
             {"role": "user", "content": json.dumps({"state": state, "jev_decision": decision, "news": news or []}, default=str)},
         ]
         return await self.client.chat(messages)

@@ -19,15 +19,22 @@ class PredictionStore:
                 symbol TEXT NOT NULL, state_snapshot TEXT NOT NULL,
                 llm_analysis TEXT NOT NULL, jev_model TEXT NOT NULL,
                 jev_direction TEXT NOT NULL, jev_confidence REAL NOT NULL,
-                horizon TEXT NOT NULL)""")
+                horizon TEXT NOT NULL, jev_score REAL,
+                final_judgment TEXT)""")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(predictions)")}
+            if "jev_score" not in columns:
+                conn.execute("ALTER TABLE predictions ADD COLUMN jev_score REAL")
+            if "final_judgment" not in columns:
+                conn.execute("ALTER TABLE predictions ADD COLUMN final_judgment TEXT")
 
     def _connect(self):
         return sqlite3.connect(self.path)
 
-    def save(self, *, state: MarketState, llm_analysis: LLMAnalysis, decision: JEVDecision, horizon: str = "24-72h") -> int:
+    def save(self, *, state: MarketState, llm_analysis: LLMAnalysis, decision: JEVDecision,
+             final_judgment: str | None = None, horizon: str = "24-72h") -> int:
         with self._connect() as conn:
-            cur = conn.execute("INSERT INTO predictions(timestamp,symbol,state_snapshot,llm_analysis,jev_model,jev_direction,jev_confidence,horizon) VALUES(?,?,?,?,?,?,?,?)",
-                (decision.timestamp.isoformat(), decision.symbol, state.model_dump_json(), llm_analysis.model_dump_json(), decision.model, decision.direction, decision.confidence, horizon))
+            cur = conn.execute("INSERT INTO predictions(timestamp,symbol,state_snapshot,llm_analysis,jev_model,jev_direction,jev_confidence,horizon,jev_score,final_judgment) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (decision.timestamp.isoformat(), decision.symbol, state.model_dump_json(), llm_analysis.model_dump_json(), decision.model, decision.direction, decision.confidence, horizon, decision.score, final_judgment))
             return int(cur.lastrowid)
 
     def list(self, *, symbol: str | None = None, limit: int = 20) -> list[dict]:
@@ -40,7 +47,7 @@ class PredictionStore:
         params.append(max(1, limit))
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
-        keys = ["id", "timestamp", "symbol", "state_snapshot", "llm_analysis", "jev_model", "jev_direction", "jev_confidence", "horizon"]
+        keys = ["id", "timestamp", "symbol", "state_snapshot", "llm_analysis", "jev_model", "jev_direction", "jev_confidence", "horizon", "jev_score", "final_judgment"]
         return [dict(zip(keys, row)) for row in rows]
 
     def get(self, *, symbol: str | None = None, limit: int = 20) -> list[dict]:

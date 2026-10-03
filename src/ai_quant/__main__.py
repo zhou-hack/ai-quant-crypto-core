@@ -20,8 +20,10 @@ async def run_analyze(symbol: str) -> None:
     print("\nLLM Analysis:")
     for name in ("trend", "fundamental", "risk", "event", "sentiment"):
         print(f"{name + ':':14}{getattr(result.llm_analysis, name):.2f}")
+    print(f"{'direction_pick:':14}{result.llm_analysis.direction_pick}")
     print("\nJEV:")
     print(f"direction:   {result.jev_decision.direction}")
+    print(f"score:       {result.jev_decision.score:.2f}")
     print(f"confidence:  {result.jev_decision.confidence:.2f}")
 
 
