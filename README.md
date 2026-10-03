@@ -37,6 +37,28 @@ $env:PYTHONPATH="src"
 python -m ai_quant analyze BTCUSDT
 ```
 
+## Standalone Scripts
+
+The `scripts/` directory contains optional helpers that wrap the analysis
+pipeline for one-off Telegram-style reports. They expect a populated `.env`
+and a working venv interpreter at `.venv/Scripts/python.exe`.
+
+```powershell
+$env:PYTHONPATH="src"
+python -m scripts.fetch_news --currencies BTC,ETH --hours 24
+python -m scripts.run_analysis BTCUSDT
+python -m scripts.run_analysis ETHUSDT --news-file path\to\news.json
+```
+
+- `scripts/fetch_news` aggregates BTC/ETH news from CryptoPanic + several
+  RSS sources and writes a JSON list to stdout.
+- `scripts/run_analysis` runs the full pipeline with optional pre-fetched
+  news, formats a compact Telegram message, and prints it to stdout
+  (Chinese translation ready when paired with an LLM that supports it).
+- `scripts/run_analysis --news-file <path>` skips the HTTP fetcher and
+  reads news from a JSON list — useful when news has been scraped by an
+  external browser driver.
+
 ## MCP Server
 
 ```powershell
