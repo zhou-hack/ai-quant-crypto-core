@@ -1,0 +1,10 @@
+market:
+  interval: 1h
+  intervals: [1h, 4h]
+  lookback_days: 7
+  max_symbols: 5
+  limit: 100
+jev:
+  choices: [LONG, SHORT, HOLD]
+analysis:
+  horizon_hours: [24, 48, 72]
