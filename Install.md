@@ -148,6 +148,25 @@ jev_decide(symbol, state)
 get_prediction(symbol, limit)
 get_predictions(symbols, limit)
 ```
+## 可选脚本（scripts/）
+
+仓库根目录的 `scripts/` 目录提供两个独立的命令行工具，用于在 MCP 之外手动驱动一次完整分析。这些工具**不是** MCP Server 的替代品，它们只是 Core 包的便捷封装；当 MCP 工作流更合适时仍应优先使用 `analyze_market`。
+
+```powershell
+$env:PYTHONPATH="src"
+python -m scripts.fetch_news --currencies BTC,ETH --hours 24
+python -m scripts.run_analysis BTCUSDT
+python -m scripts.run_analysis ETHUSDT --news-file path	o
+ews.json
+```
+
+- `scripts/fetch_news`：从 CryptoPanic 公共 API 和多个 RSS 源（CoinDesk、CoinTelegraph、The Block、Decrypt、Bitcoin Magazine）聚合 BTC/ETH 新闻，去重并按时间窗口过滤，输出 JSON 列表到 stdout。
+- `scripts/run_analysis`：调用 `AnalysisPipeline.analyze(symbol, news=...)` 跑完整流程，结果格式化为精简的 Telegram 风格 Markdown 消息并打印到 stdout。
+- `--news-file <path>`：跳过内部 fetcher，从 JSON 文件读预抓的新闻。当浏览器或外部爬虫已经抓到了新闻、希望复用时使用。
+- 默认 JEV 评分阈值是 `0.65`（见 `JEVSettings.score_threshold`）。低于该阈值时 LLM 的方向提名会被驳回，最终方向落 `HOLD`。
+
+完成报告应在原有检查项基础上加一条：`[ ] scripts.run_analysis BTCUSDT 输出中文 Markdown 成功`。
+
 
 ## 完成报告
 

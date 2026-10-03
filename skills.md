@@ -75,6 +75,15 @@ Hermes 浏览器获取最近 7 天新闻
 
 新闻必须先经过 LLM 筛选，原始新闻不能直接作为 JEV 输入。JEV 返回后，必须把 JEV 结果交给 LLM 做最终判断。最终判断不得改写 JEV 原始 `score` 和采纳后的 `direction`，必须同时保留这两个值。
 
+## 可选脚本（scripts/）
+
+`scripts/` 目录提供两个独立的命令行工具，可在 MCP 之外手动驱动一次完整分析：
+
+- `scripts.fetch_news --currencies BTC,ETH --hours 24`：从 CryptoPanic 公共 API 和多个 RSS 源聚合 BTC/ETH 新闻，按时间窗口过滤，输出 JSON 列表到 stdout。
+- `scripts.run_analysis SYMBOL [--news-file PATH]`：调用 `AnalysisPipeline.analyze(symbol, news=...)` 跑完整流程，结果格式化为精简的 Telegram 风格 Markdown 消息并打印到 stdout。`--news-file` 跳过内部 fetcher，从 JSON 文件读预抓的新闻。
+
+使用时机：MCP Server 不可用、需要在 Hermes 之外验证 pipeline、或做一次性手动报告时。**不是** MCP 工具的替代品——正式分析仍应通过 `analyze_market`。
+
 ## 可用 MCP 工具
 
 ### `get_market_data`
